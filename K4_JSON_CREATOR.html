@@ -19,16 +19,138 @@
     th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: center; }
     th { background-color: #f2f2f2; position: sticky; top: 0; z-index: 1; }
     button { margin-top: 20px; padding: 8px 14px; font-size: 14px; }
+#statusLabel { margin: 10px 0; font-weight: bold; }
   </style>
 </head>
 <body>
 <h2>K4 Final JSON Creator</h2>
 <div class="drop-zone" id="xlsxDrop">Drag and Drop your Summary (XLSX) file</div>
 <div class="drop-zone" id="pdfDrop">Drag and Drop your Lines (PDF) file</div>
-<div id="table-container">Waiting for files...</div>
-<button onclick="saveJSON()">Save Final JSON</button>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+<div id="statusLabel">Waiting for files...</div>
+<div id="table-container"></div>
+<button id="saveButton" onclick="saveJSON()" style="display:none; margin-bottom: 20px;">Save Final JSON</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js">
+
+
+function updateStatusLabel(message) {
+  const label = document.getElementById("statusLabel");
+  if (label) label.innerHTML = `<strong>${message}</strong>`;
+}
+
+function tryEnableSaveButton() {
+  if (isXLSXParsed && isPDFParsed) {
+    updateStatusLabel("Parsing month and year data...");
+
+    const match = xlsxFileName.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+    if (match) {
+      const monthName = match[1].toLowerCase();
+      const year = parseInt(match[2]);
+      const monthMap = {
+        january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+        july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
+      };
+
+      const mm = monthMap[monthName];
+      if (mm && year >= 2024 && year <= 2050) {
+        parsedMonth = mm;
+        parsedYear = year;
+        const btn = document.getElementById("saveButton");
+        btn.style.display = "inline-block";
+        btn.textContent = `Save ${mm}/${year} JSON File`;
+        updateStatusLabel(""); // clear status
+        return;
+      }
+    }
+
+    // Parsing failed
+    updateStatusLabel("Parsing month and year data...");
+  }
+}
+
+// Wrap original handlers BEFORE binding them to drop zones
+function wrappedXLSX(file) {
+  xlsxFileName = file.name.replace(/\.xlsx$/i, '');
+  handleXLSX(file);
+  isXLSXParsed = true;
+  updateStatusLabel("Waiting for second file...");
+  tryEnableSaveButton();
+}
+
+function wrappedPDF(file) {
+  handlePDF(file);
+  isPDFParsed = true;
+  tryEnableSaveButton();
+}
+
+// Update setupDropZone bindings
+setupDropZone("xlsxDrop", wrappedXLSX);
+setupDropZone("pdfDrop", wrappedPDF);
+
+// Initialize label
+updateStatusLabel("Waiting for files...");
+
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js">
+
+
+function updateStatusLabel(message) {
+  const label = document.getElementById("statusLabel");
+  if (label) label.innerHTML = `<strong>${message}</strong>`;
+}
+
+function tryEnableSaveButton() {
+  if (isXLSXParsed && isPDFParsed) {
+    updateStatusLabel("Parsing month and year data...");
+
+    const match = xlsxFileName.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+    if (match) {
+      const monthName = match[1].toLowerCase();
+      const year = parseInt(match[2]);
+      const monthMap = {
+        january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+        july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
+      };
+
+      const mm = monthMap[monthName];
+      if (mm && year >= 2024 && year <= 2050) {
+        parsedMonth = mm;
+        parsedYear = year;
+        const btn = document.getElementById("saveButton");
+        btn.style.display = "inline-block";
+        btn.textContent = `Save ${mm}/${year} JSON File`;
+        updateStatusLabel(""); // clear status
+        return;
+      }
+    }
+
+    // Parsing failed
+    updateStatusLabel("Parsing month and year data...");
+  }
+}
+
+// Wrap original handlers BEFORE binding them to drop zones
+function wrappedXLSX(file) {
+  xlsxFileName = file.name.replace(/\.xlsx$/i, '');
+  handleXLSX(file);
+  isXLSXParsed = true;
+  updateStatusLabel("Waiting for second file...");
+  tryEnableSaveButton();
+}
+
+function wrappedPDF(file) {
+  handlePDF(file);
+  isPDFParsed = true;
+  tryEnableSaveButton();
+}
+
+// Update setupDropZone bindings
+setupDropZone("xlsxDrop", wrappedXLSX);
+setupDropZone("pdfDrop", wrappedPDF);
+
+// Initialize label
+updateStatusLabel("Waiting for files...");
+
+</script>
 <script>
 let parsedLines = [];
 let calendarHeaders = [];
@@ -142,13 +264,73 @@ function renderTable(data, headers) {
 }
 
 function saveJSON() {
-  const json = { calendarHeaders, lines: parsedLines };
+  const json = { calendarHeaders, lines: parsedLines, month: parsedMonth, year: parsedYear };
   const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `K4_${xlsxFileName}_Parsed_Lines.json`;
   a.click();
 }
+
+
+
+function updateStatusLabel(message) {
+  const label = document.getElementById("statusLabel");
+  if (label) label.innerHTML = `<strong>${message}</strong>`;
+}
+
+function tryEnableSaveButton() {
+  if (isXLSXParsed && isPDFParsed) {
+    updateStatusLabel("Parsing month and year data...");
+
+    const match = xlsxFileName.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+    if (match) {
+      const monthName = match[1].toLowerCase();
+      const year = parseInt(match[2]);
+      const monthMap = {
+        january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+        july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
+      };
+
+      const mm = monthMap[monthName];
+      if (mm && year >= 2024 && year <= 2050) {
+        parsedMonth = mm;
+        parsedYear = year;
+        const btn = document.getElementById("saveButton");
+        btn.style.display = "inline-block";
+        btn.textContent = `Save ${mm}/${year} JSON File`;
+        updateStatusLabel(""); // clear status
+        return;
+      }
+    }
+
+    // Parsing failed
+    updateStatusLabel("Parsing month and year data...");
+  }
+}
+
+// Wrap original handlers BEFORE binding them to drop zones
+function wrappedXLSX(file) {
+  xlsxFileName = file.name.replace(/\.xlsx$/i, '');
+  handleXLSX(file);
+  isXLSXParsed = true;
+  updateStatusLabel("Waiting for second file...");
+  tryEnableSaveButton();
+}
+
+function wrappedPDF(file) {
+  handlePDF(file);
+  isPDFParsed = true;
+  tryEnableSaveButton();
+}
+
+// Update setupDropZone bindings
+setupDropZone("xlsxDrop", wrappedXLSX);
+setupDropZone("pdfDrop", wrappedPDF);
+
+// Initialize label
+updateStatusLabel("Waiting for files...");
+
 </script>
 </body>
 </html>
