@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>K4 Final JSON Creator App</title>
+<style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 6px;
+      padding: 40px;
+      text-align: center;
+      color: #888;
+      margin-bottom: 20px;
+    }
+    .drop-zone.hover { border-color: #666; color: #222; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: auto; white-space: nowrap; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: center; }
+    th { background-color: #f2f2f2; position: sticky; top: 0; z-index: 1; }
+    button { margin-top: 20px; padding: 8px 14px; font-size: 14px; }
+  </style>
+</head>
+<body>
+<h2>K4 Final JSON Creator</h2>
+<div class="drop-zone" id="xlsxDrop">Drag and Drop your Summary (XLSX) file</div>
+<div class="drop-zone" id="pdfDrop">Drag and Drop your Lines (PDF) file</div>
+<div id="table-container">Waiting for files...</div>
+<button onclick="saveJSON()">Save Final JSON</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+<script>
+let parsedLines = [];
+let calendarHeaders = [];
+
+function setupDropZone(id, callback) {
+  const zone = document.getElementById(id);
+  zone.addEventListener("dragover", e => {
+    e.preventDefault();
+    zone.classList.add("hover");
+  });
+  zone.addEventListener("dragleave", () => zone.classList.remove("hover"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("hover");
+    const file = e.dataTransfer.files[0];
+    if (file) callback(file);
+  });
+}
+
+setupDropZone("xlsxDrop", handleXLSX);
+setupDropZone("pdfDrop", handlePDF);
+
+let xlsxFileName = '';
+function handleXLSX(file) {
+  xlsxFileName = file.name.replace(/\.xlsx$/i, '');
+  const reader = new FileReader();
+  reader.onload = e => {
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+    
+    calendarHeaders = rows[0].slice(3).map(cell => {
+      const parsed = XLSX.SSF.parse_date_code(cell);
+      const mm = String(parsed.m).padStart(2, '0');
+      const dd = String(parsed.d).padStart(2, '0');
+      return `${mm}/${dd}`;
+    });
+        
+parsedLines = rows.slice(1)
+      .filter(r => r[0] && typeof r[0] === "string" && r[0].match(/^(F|R|Q)\d+/))
+      .map(r => ({
+        bidLineNumber: r[0],
+        crewComplement: r[1] || "-",
+        blockTime: "-", dutyTime: "-", creditTime: "-", dutyDays: "-", daysOff: "-",
+        calendarDays: Array.from({ length: calendarHeaders.length }, (_, i) =>
+        (r[i + 3] === undefined || r[i + 3] === null) ? "-" : String(r[i + 3])
+    )
+      }));
+
+    renderTable(parsedLines, calendarHeaders);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function handlePDF(file) {
+  const loadingTask = pdfjsLib.getDocument(URL.createObjectURL(file));
+  loadingTask.promise.then(pdf => {
+    let textItems = [];
+    let pagePromises = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      pagePromises.push(pdf.getPage(i).then(page =>
+        page.getTextContent().then(c => {
+          textItems.push(...c.items.map(item => item.str));
+        })
+      ));
+    }
+
+    Promise.all(pagePromises).then(() => {
+      for (let i = 0; i < textItems.length; i++) {
+        const matchLine = textItems[i].match(/^(F\d+|R\d+|Q\d+)/);
+        if (matchLine) {
+          const lineId = matchLine[1];
+          const segment = textItems.slice(i, i + 25).join(" ");
+          const match = segment.match(/Block.*?(\d+:\d+).*?Duty.*?(\d+:\d+).*?Credit.*?(\d+:\d+).*?Duty Days.*?(\d+).*?Days Off.*?(\d+)/i);
+          if (match) {
+            const line = parsedLines.find(l => l.bidLineNumber === lineId);
+            if (line) {
+              line.blockTime = match[1];
+              line.dutyTime = match[2];
+              line.creditTime = match[3];
+              line.dutyDays = parseInt(match[4]);
+              line.daysOff = parseInt(match[5]);
+            }
+          }
+        }
+      }
+      renderTable(parsedLines, calendarHeaders);
+    });
+  });
+}
+
+function renderTable(data, headers) {
+  const container = document.getElementById("table-container");
+  let html = "<table><thead><tr>";
+  const staticCols = ["bidLineNumber", "crewComplement", "blockTime", "dutyTime", "creditTime", "dutyDays", "daysOff"];
+  staticCols.concat(headers).forEach(h => html += `<th>${h}</th>`);
+  html += "</tr></thead><tbody>";
+
+  data.forEach(row => {
+    html += "<tr>";
+    staticCols.forEach(h => html += `<td>${row[h] ?? "-"}</td>`);
+    (row.calendarDays || []).forEach(c => html += `<td>${c}</td>`);
+    html += "</tr>";
+  });
+
+  html += "</tbody></table>";
+  container.innerHTML = html;
+}
+
+function saveJSON() {
+  const json = { calendarHeaders, lines: parsedLines };
+  const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `K4_${xlsxFileName}_Parsed_Lines.json`;
+  a.click();
+}
+</script>
+</body>
+</html>
